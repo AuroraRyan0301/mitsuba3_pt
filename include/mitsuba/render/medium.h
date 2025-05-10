@@ -73,6 +73,14 @@ public:
     sample_interaction_real(const Ray3f &ray, Sampler *sampler, UInt32 channel,
                             Mask active) const;
 
+    // std::tuple<MediumInteraction3f, MediumInteraction3f, Spectrum>
+    // sample_interaction_pt(const Ray3f &ray, Sampler *sampler, UInt32 channel, Float bias,
+    //                         Mask active) const;
+
+    std::tuple<MediumInteraction3f, MediumInteraction3f, MediumInteraction3f, Float>
+    sample_interaction_pt(const Ray3f &ray, Sampler *sampler, UInt32 channel, Float bias,
+        Mask active) const;
+
     /**
      * Sample an interaction with Differential Ratio Tracking.
      * Intended for adjoint integration.
@@ -244,6 +252,7 @@ DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::Medium)
     DRJIT_VCALL_METHOD(intersect_aabb)
     DRJIT_VCALL_METHOD(sample_interaction)
     DRJIT_VCALL_METHOD(sample_interaction_real)
+    DRJIT_VCALL_METHOD(sample_interaction_pt)
     DRJIT_VCALL_METHOD(sample_interaction_drt)
     DRJIT_VCALL_METHOD(sample_interaction_drrt)
     DRJIT_VCALL_METHOD(eval_tr_and_pdf)
