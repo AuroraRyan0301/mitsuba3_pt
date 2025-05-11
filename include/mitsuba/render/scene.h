@@ -381,6 +381,42 @@ public:
                              Mask active = true) const;
 
     /**
+     * \brief Sample elong
+     *
+     * This method implements stochastic connections to emitters, which is
+     * variously known as <em>emitter sampling</em>, <em>direct illumination
+     * sampling</em>, or <em>next event estimation</em>.
+     *
+     * The function expects a 3D reference location \c ref as input, which may
+     * influence the sampling process. Normally, this would be the location of
+     * a surface position being shaded. Ideally, the implementation of this
+     * function should then draw samples proportional to the scene's emission
+     * profile and the inverse square distance between the reference point and
+     * the sampled emitter position. However, approximations are acceptable as
+     * long as these are reflected in the returned Monte Carlo sampling weight.
+     *
+     * \param ref
+     *    A 3D reference location within the scene, which may influence the
+     *    sampling process.
+     *
+     * \return
+     *    A tuple <tt>(ds, spec)</tt> where
+     *    <ul>
+     *      <li>\c ds is a fully populated \ref DirectionSample3f data
+     *          structure, which provides further detail about the sampled
+     *          emitter position (e.g. its surface normal, solid angle density,
+     *          whether Dirac delta distributions were involved, etc.)</li>
+     *      <li>
+     *      <li>\c spec is a Monte Carlo sampling weight specifying the ratio
+     *          of the radiance incident from the emitter and the sample
+     *          probability per unit solid angle.</li>
+     *    </ul>
+     */
+    Spectrum sample_emitter_elong(const SurfaceInteraction3f &ref,
+                             Mask active = true) const;
+
+
+    /**
      * \brief Evaluate the PDF of direct illumination sampling
      *
      * This function evaluates the probability density (per unit solid angle)

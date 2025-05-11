@@ -288,6 +288,30 @@ Scene<Float, Spectrum>::sample_emitter_direction(const Interaction3f &ref, const
     return { ds, spec };
 }
 
+MI_VARIANT Spectrum
+Scene<Float, Spectrum>::sample_emitter_elong(const SurfaceInteraction3f &ref, Mask active) const {
+    MI_MASKED_FUNCTION(ProfilerPhase::SampleEmitterElong, active);
+
+    Spectrum spec;
+
+    // Potentially disable inlining of emitter sampling (if there is just a single emitter)
+    bool vcall_inline = true;
+    if constexpr (dr::is_jit_v<Float>)
+         vcall_inline = jit_flag(JitFlag::VCallInline);
+
+    size_t emitter_count = m_emitters.size();
+    if (emitter_count == 1) {
+        spec = m_emitters[0]->eval(ref, active);
+    }
+    else {
+        spec = 0.f;
+        Throw("Multiple emitters are not supported in 'sample_emitter_elong'. Only single-emitter scenes are supported.");
+    }
+
+    return spec;
+}
+
+
 MI_VARIANT Float
 Scene<Float, Spectrum>::pdf_emitter_direction(const Interaction3f &ref,
                                               const DirectionSample3f &ds,
