@@ -344,6 +344,116 @@ Medium<Float, Spectrum>::sample_interaction_drt(const Ray3f &ray,
     return { mei, sampling_weight };
 }
 
+MI_VARIANT
+std::tuple<typename Medium<Float, Spectrum>::MediumInteraction3f, typename Medium<Float, Spectrum>::MediumInteraction3f, typename Medium<Float, Spectrum>::MediumInteraction3f, Float>
+Medium<Float, Spectrum>::sample_interaction_pt(const Ray3f &ray,
+                                                 Sampler *sampler,
+                                                 UInt32 channel,
+                                                 Float bias,
+                                                 Mask _active) const {
+    MI_MASKED_FUNCTION(ProfilerPhase::MediumSample, _active);
+    // TODO: optimize for RGB by making `channel` a scalar index?
+    if (m_majorant_grid)
+        NotImplementedError("sample_interaction_pt with majorant supergrid");
+
+    auto [mei, mint, maxt, active] = prepare_interaction_sampling(ray, _active);
+
+    MediumInteraction3f mei_next = mei;
+    MediumInteraction3f mei_main_fwd = mei;
+    MediumInteraction3f mei_pre_bwd = mei;
+    MediumInteraction3f mei_post = mei;
+    // Mask pre_escaped = !active;
+    // Mask post_escaped = !active;
+    Mask PreScattered = (!active) && false;
+    Mask PostScattered = (!active) && false;
+
+    // init transmittance record for post tracking
+
+    // post_real_transmittance = mi.Spectrum(1.)
+    // resample_T = mi.Spectrum(1.)
+    // ray_pseudo_transmittance = mi.Spectrum(1.)
+
+    Float ray_pseudo_transmittance        = 1.f;
+    Float main_reservoir_weight_sum =  0.0f;
+
+    // Spectrum weight = dr::full<Spectrum>(1.f, dr::width(ray));
+    dr::Loop<Mask> loop("Medium::sample_interaction_pt");
+
+
+    // Get global majorant once and for all
+    auto combined_extinction = get_majorant(mei, active);
+    mei.combined_extinction   = combined_extinction;
+    mei_main_fwd.combined_extinction   = combined_extinction;
+    mei_post.combined_extinction   = combined_extinction;
+    mei_pre_bwd.combined_extinction   = combined_extinction;
+    mei_next.combined_extinction   = combined_extinction;
+    Float global_majorant = extract_channel(combined_extinction, channel);
+    // here pre_escaped is escaping before first scattering
+    // post_escaped is escaping before second scattering
+    loop.put(active, mei_next, mei_main_fwd, mei_post, mei_pre_bwd, bias, ray_pseudo_transmittance, main_reservoir_weight_sum, PreScattered, PostScattered);
+    sampler->loop_put(loop);
+    loop.init();
+
+    while (loop(active)) {
+        // Repeatedly sample from homogenized medium
+        Float desired_tau = -dr::log(1 - sampler->next_1d(active));
+        Float sampled_t = mei_next.mint + desired_tau / global_majorant;
+
+        Mask valid_mei = active && (sampled_t < maxt);
+        mei_next.t     = sampled_t;
+        mei_next.p     = ray(sampled_t);
+        std::tie(mei_next.sigma_s, mei_next.sigma_n, mei_next.sigma_t) =
+            get_scattering_coefficients(mei_next, valid_mei);
+
+        // Determine whether it was a real or null interaction
+        Float r_no_offset = dr::detach((extract_channel(mei_next.sigma_t, channel) ) / global_majorant);
+        Float r =  dr::detach((extract_channel((mei_next.sigma_t + bias), channel)) / global_majorant);
+        
+        
+        Float main_absorb = ray_pseudo_transmittance * r;
+        dr::masked(main_reservoir_weight_sum, valid_mei) += main_absorb;
+        dr::masked(ray_pseudo_transmittance, valid_mei) *= (1-r);
+
+
+        // Float scatter_rand = sampler->next_1d(active);
+        // acquire information for interaction of this time
+        Mask did_pre_scatter = valid_mei && (sampler->next_1d(active) < main_absorb/main_reservoir_weight_sum);
+        Mask first_interaction =  active && did_pre_scatter;
+        Mask did_post_scatter = valid_mei && (sampler->next_1d(active) < r_no_offset);
+        Mask second_interaction = active && (did_post_scatter && PreScattered && (!PostScattered));
+        
+        // renew state mask
+        PostScattered |= second_interaction;
+        PostScattered &= (active && (!did_pre_scatter));
+        PreScattered |=  first_interaction;
+
+        // only renew mei when scattering happened
+        dr::masked(mei_main_fwd, first_interaction) = mei_next;
+        dr::masked(mei_pre_bwd, first_interaction) = mei_next;
+        dr::masked(mei_post, second_interaction) = mei_next;
+
+        // Spectrum event_pdf = mei_next.sigma_t / combined_extinction;
+        // event_pdf = dr::select(did_scatter, event_pdf, 1.f - event_pdf);
+        // weight[active] *= event_pdf / dr::detach(event_pdf);
+
+        mei_next.mint = sampled_t;
+        active &= valid_mei;
+    }
+
+    dr::masked(mei_pre_bwd.t, _active && (!PreScattered)) = dr::Infinity<Float>;
+    mei_pre_bwd.p                      = ray(mei_pre_bwd.t);
+    dr::masked(mei_post.t, _active && (!PostScattered)) = dr::Infinity<Float>;
+    mei_post.p                      = ray(mei_post.t);
+    // finalize mei_main_fwd
+    main_reservoir_weight_sum += ray_pseudo_transmittance;
+    Mask out_judge = _active && (sampler->next_1d(_active) < (ray_pseudo_transmittance/main_reservoir_weight_sum));
+    dr::masked(mei_main_fwd.t, out_judge) = dr::Infinity<Float>;
+    mei_main_fwd.p                      = ray(mei_main_fwd.t);
+
+
+    return { mei_main_fwd, mei_post, mei_pre_bwd, ray_pseudo_transmittance};
+}
+
 
 MI_VARIANT
 std::pair<typename Medium<Float, Spectrum>::MediumInteraction3f, Spectrum>
